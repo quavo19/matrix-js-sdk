@@ -30,7 +30,7 @@ export enum TweakName {
 
 export type Tweak<N extends TweakName, V> = {
     set_tweak: N;
-    value?: V;
+    value: V;
 };
 
 export type TweakHighlight = Tweak<TweakName.Highlight, boolean>;
@@ -48,9 +48,9 @@ export enum ConditionOperator {
 
 export type PushRuleAction = Tweaks | PushRuleActionName;
 
-export type MemberCountCondition<N extends number, Op extends ConditionOperator = ConditionOperator.ExactEquals> =
-    | `${Op}${N}`
-    | (Op extends ConditionOperator.ExactEquals ? `${N}` : never);
+export type MemberCountCondition
+    <N extends number, Op extends ConditionOperator = ConditionOperator.ExactEquals>
+    = `${Op}${N}` | (Op extends ConditionOperator.ExactEquals ? `${N}` : never);
 
 export type AnyMemberCountCondition = MemberCountCondition<number, ConditionOperator>;
 
@@ -62,13 +62,9 @@ export function isDmMemberCountCondition(condition: AnyMemberCountCondition): bo
 
 export enum ConditionKind {
     EventMatch = "event_match",
-    EventPropertyIs = "event_property_is",
-    EventPropertyContains = "event_property_contains",
     ContainsDisplayName = "contains_display_name",
     RoomMemberCount = "room_member_count",
     SenderNotificationPermission = "sender_notification_permission",
-    CallStarted = "call_started",
-    CallStartedPrefix = "org.matrix.msc3914.call_started",
 }
 
 export interface IPushRuleCondition<N extends ConditionKind | string> {
@@ -78,20 +74,7 @@ export interface IPushRuleCondition<N extends ConditionKind | string> {
 
 export interface IEventMatchCondition extends IPushRuleCondition<ConditionKind.EventMatch> {
     key: string;
-    pattern?: string;
-    // Note that value property is an optimization for patterns which do not do
-    // any globbing and when the key is not "content.body".
-    value?: string;
-}
-
-export interface IEventPropertyIsCondition extends IPushRuleCondition<ConditionKind.EventPropertyIs> {
-    key: string;
-    value: string | boolean | null | number;
-}
-
-export interface IEventPropertyContainsCondition extends IPushRuleCondition<ConditionKind.EventPropertyContains> {
-    key: string;
-    value: string | boolean | null | number;
+    pattern: string;
 }
 
 export interface IContainsDisplayNameCondition extends IPushRuleCondition<ConditionKind.ContainsDisplayName> {
@@ -107,25 +90,12 @@ export interface ISenderNotificationPermissionCondition
     key: string;
 }
 
-export interface ICallStartedCondition extends IPushRuleCondition<ConditionKind.CallStarted> {
-    // no additional fields
-}
-
-export interface ICallStartedPrefixCondition extends IPushRuleCondition<ConditionKind.CallStartedPrefix> {
-    // no additional fields
-}
-
 // XXX: custom conditions are possible but always fail, and break the typescript discriminated union so ignore them here
 // IPushRuleCondition<Exclude<string, ConditionKind>> unfortunately does not resolve this at the time of writing.
-export type PushRuleCondition =
-    | IEventMatchCondition
-    | IEventPropertyIsCondition
-    | IEventPropertyContainsCondition
+export type PushRuleCondition = IEventMatchCondition
     | IContainsDisplayNameCondition
     | IRoomMemberCountCondition
-    | ISenderNotificationPermissionCondition
-    | ICallStartedCondition
-    | ICallStartedPrefixCondition;
+    | ISenderNotificationPermissionCondition;
 
 export enum PushRuleKind {
     Override = "override",
@@ -137,8 +107,6 @@ export enum PushRuleKind {
 
 export enum RuleId {
     Master = ".m.rule.master",
-    IsUserMention = ".org.matrix.msc3952.is_user_mention",
-    IsRoomMention = ".org.matrix.msc3952.is_room_mention",
     ContainsDisplayName = ".m.rule.contains_display_name",
     ContainsUserName = ".m.rule.contains_user_name",
     AtRoomNotification = ".m.rule.roomnotif",
@@ -151,14 +119,6 @@ export enum RuleId {
     IncomingCall = ".m.rule.call",
     SuppressNotices = ".m.rule.suppress_notices",
     Tombstone = ".m.rule.tombstone",
-    PollStart = ".m.rule.poll_start",
-    PollStartUnstable = ".org.matrix.msc3930.rule.poll_start",
-    PollEnd = ".m.rule.poll_end",
-    PollEndUnstable = ".org.matrix.msc3930.rule.poll_end",
-    PollStartOneToOne = ".m.rule.poll_start_one_to_one",
-    PollStartOneToOneUnstable = ".org.matrix.msc3930.rule.poll_start_one_to_one",
-    PollEndOneToOne = ".m.rule.poll_end_one_to_one",
-    PollEndOneToOneUnstable = ".org.matrix.msc3930.rule.poll_end_one_to_one",
 }
 
 export type PushRuleSet = {
@@ -184,25 +144,21 @@ export interface IPushRules {
 }
 
 export interface IPusher {
-    "app_display_name": string;
-    "app_id": string;
-    "data": {
+    app_display_name: string;
+    app_id: string;
+    data: {
         format?: string;
         url?: string; // TODO: Required if kind==http
         brand?: string; // TODO: For email notifications only? Unspecced field
     };
-    "device_display_name": string;
-    "kind": "http" | string;
-    "lang": string;
-    "profile_tag"?: string;
-    "pushkey": string;
-    "enabled"?: boolean | null;
-    "org.matrix.msc3881.enabled"?: boolean | null;
-    "device_id"?: string | null;
-    "org.matrix.msc3881.device_id"?: string | null;
+    device_display_name: string;
+    kind: "http" | string;
+    lang: string;
+    profile_tag?: string;
+    pushkey: string;
 }
 
-export interface IPusherRequest extends Omit<IPusher, "device_id" | "org.matrix.msc3881.device_id"> {
+export interface IPusherRequest extends IPusher {
     append?: boolean;
 }
 

@@ -14,6 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+/**
+ * @module models/search-result
+ */
+
 import { EventContext } from "./event-context";
 import { EventMapper } from "../event-mapper";
 import { IResultContext, ISearchResult } from "../@types/search";
@@ -21,10 +25,14 @@ import { IResultContext, ISearchResult } from "../@types/search";
 export class SearchResult {
     /**
      * Create a SearchResponse from the response to /search
+     * @static
+     * @param {Object} jsonObj
+     * @param {function} eventMapper
+     * @return {SearchResult}
      */
 
     public static fromJson(jsonObj: ISearchResult, eventMapper: EventMapper): SearchResult {
-        const jsonContext = jsonObj.context || ({} as IResultContext);
+        const jsonContext = jsonObj.context || {} as IResultContext;
         let eventsBefore = (jsonContext.events_before || []).map(eventMapper);
         let eventsAfter = (jsonContext.events_after || []).map(eventMapper);
 
@@ -32,8 +40,8 @@ export class SearchResult {
 
         // Filter out any contextual events which do not correspond to the same timeline (thread or room)
         const threadRootId = context.ourEvent.threadRootId;
-        eventsBefore = eventsBefore.filter((e) => e.threadRootId === threadRootId);
-        eventsAfter = eventsAfter.filter((e) => e.threadRootId === threadRootId);
+        eventsBefore = eventsBefore.filter(e => e.threadRootId === threadRootId);
+        eventsAfter = eventsAfter.filter(e => e.threadRootId === threadRootId);
 
         context.setPaginateToken(jsonContext.start, true);
         context.addEvents(eventsBefore, true);
@@ -46,9 +54,11 @@ export class SearchResult {
     /**
      * Construct a new SearchResult
      *
-     * @param rank -   where this SearchResult ranks in the results
-     * @param context -  the matching event and its
+     * @param {number} rank   where this SearchResult ranks in the results
+     * @param {event-context.EventContext} context  the matching event and its
      *    context
+     *
+     * @constructor
      */
-    public constructor(public readonly rank: number, public readonly context: EventContext) {}
+    constructor(public readonly rank: number, public readonly context: EventContext) {}
 }

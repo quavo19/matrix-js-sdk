@@ -15,27 +15,26 @@ limitations under the License.
 */
 
 import { ISavedSync } from "./index";
-import { IEvent, IStateEventWithRoomId, IStoredClientOpts, ISyncResponse } from "../matrix";
+import { IEvent, IStartClientOpts, IStateEventWithRoomId, ISyncResponse } from "..";
 import { IndexedToDeviceBatch, ToDeviceBatchWithTxnId } from "../models/ToDeviceMessage";
 
 export interface IIndexedDBBackend {
-    connect(onClose?: () => void): Promise<void>;
+    connect(): Promise<void>;
     syncToDatabase(userTuples: UserTuple[]): Promise<void>;
     isNewlyCreated(): Promise<boolean>;
     setSyncData(syncData: ISyncResponse): Promise<void>;
-    getSavedSync(): Promise<ISavedSync | null>;
+    getSavedSync(): Promise<ISavedSync>;
     getNextBatchToken(): Promise<string>;
     clearDatabase(): Promise<void>;
     getOutOfBandMembers(roomId: string): Promise<IStateEventWithRoomId[] | null>;
     setOutOfBandMembers(roomId: string, membershipEvents: IStateEventWithRoomId[]): Promise<void>;
     clearOutOfBandMembers(roomId: string): Promise<void>;
     getUserPresenceEvents(): Promise<UserTuple[]>;
-    getClientOptions(): Promise<IStoredClientOpts | undefined>;
-    storeClientOptions(options: IStoredClientOpts): Promise<void>;
+    getClientOptions(): Promise<IStartClientOpts>;
+    storeClientOptions(options: IStartClientOpts): Promise<void>;
     saveToDeviceBatches(batches: ToDeviceBatchWithTxnId[]): Promise<void>;
-    getOldestToDeviceBatch(): Promise<IndexedToDeviceBatch | null>;
+    getOldestToDeviceBatch(): Promise<IndexedToDeviceBatch>;
     removeToDeviceBatch(id: number): Promise<void>;
-    destroy(): Promise<void>;
 }
 
 export type UserTuple = [userId: string, presenceEvent: Partial<IEvent>];

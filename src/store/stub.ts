@@ -16,6 +16,7 @@ limitations under the License.
 
 /**
  * This is an internal module.
+ * @module store/stub
  */
 
 import { EventType } from "../@types/event";
@@ -28,22 +29,23 @@ import { RoomSummary } from "../models/room-summary";
 import { ISyncResponse } from "../sync-accumulator";
 import { IStateEventWithRoomId } from "../@types/search";
 import { IndexedToDeviceBatch, ToDeviceBatch } from "../models/ToDeviceMessage";
-import { IStoredClientOpts } from "../client";
 
 /**
  * Construct a stub store. This does no-ops on most store methods.
+ * @constructor
  */
 export class StubStore implements IStore {
-    public readonly accountData = new Map(); // stub
-    private fromToken: string | null = null;
+    public readonly accountData = {}; // stub
+    private fromToken: string = null;
 
-    /** @returns whether or not the database was newly created in this session. */
+    /** @return {Promise<boolean>} whether or not the database was newly created in this session. */
     public isNewlyCreated(): Promise<boolean> {
         return Promise.resolve(true);
     }
 
     /**
      * Get the sync token.
+     * @return {string}
      */
     public getSyncToken(): string | null {
         return this.fromToken;
@@ -51,18 +53,22 @@ export class StubStore implements IStore {
 
     /**
      * Set the sync token.
+     * @param {string} token
      */
-    public setSyncToken(token: string): void {
+    public setSyncToken(token: string) {
         this.fromToken = token;
     }
 
     /**
      * No-op.
+     * @param {Room} room
      */
-    public storeRoom(room: Room): void {}
+    public storeRoom(room: Room) {}
 
     /**
      * No-op.
+     * @param {string} roomId
+     * @return {null}
      */
     public getRoom(roomId: string): Room | null {
         return null;
@@ -70,7 +76,7 @@ export class StubStore implements IStore {
 
     /**
      * No-op.
-     * @returns An empty array.
+     * @return {Array} An empty array.
      */
     public getRooms(): Room[] {
         return [];
@@ -78,14 +84,15 @@ export class StubStore implements IStore {
 
     /**
      * Permanently delete a room.
+     * @param {string} roomId
      */
-    public removeRoom(roomId: string): void {
+    public removeRoom(roomId: string) {
         return;
     }
 
     /**
      * No-op.
-     * @returns An empty array.
+     * @return {Array} An empty array.
      */
     public getRoomSummaries(): RoomSummary[] {
         return [];
@@ -93,11 +100,14 @@ export class StubStore implements IStore {
 
     /**
      * No-op.
+     * @param {User} user
      */
-    public storeUser(user: User): void {}
+    public storeUser(user: User) {}
 
     /**
      * No-op.
+     * @param {string} userId
+     * @return {null}
      */
     public getUser(userId: string): User | null {
         return null;
@@ -105,6 +115,7 @@ export class StubStore implements IStore {
 
     /**
      * No-op.
+     * @return {User[]}
      */
     public getUsers(): User[] {
         return [];
@@ -112,6 +123,9 @@ export class StubStore implements IStore {
 
     /**
      * No-op.
+     * @param {Room} room
+     * @param {number} limit
+     * @return {Array}
      */
     public scrollback(room: Room, limit: number): MatrixEvent[] {
         return [];
@@ -119,21 +133,24 @@ export class StubStore implements IStore {
 
     /**
      * Store events for a room.
-     * @param room - The room to store events for.
-     * @param events - The events to store.
-     * @param token - The token associated with these events.
-     * @param toStart - True if these are paginated results.
+     * @param {Room} room The room to store events for.
+     * @param {Array<MatrixEvent>} events The events to store.
+     * @param {string} token The token associated with these events.
+     * @param {boolean} toStart True if these are paginated results.
      */
-    public storeEvents(room: Room, events: MatrixEvent[], token: string | null, toStart: boolean): void {}
+    public storeEvents(room: Room, events: MatrixEvent[], token: string, toStart: boolean) {}
 
     /**
      * Store a filter.
+     * @param {Filter} filter
      */
-    public storeFilter(filter: Filter): void {}
+    public storeFilter(filter: Filter) {}
 
     /**
      * Retrieve a filter.
-     * @returns A filter or null.
+     * @param {string} userId
+     * @param {string} filterId
+     * @return {?Filter} A filter or null.
      */
     public getFilter(userId: string, filterId: string): Filter | null {
         return null;
@@ -141,8 +158,8 @@ export class StubStore implements IStore {
 
     /**
      * Retrieve a filter ID with the given name.
-     * @param filterName - The filter name.
-     * @returns The filter ID or null.
+     * @param {string} filterName The filter name.
+     * @return {?string} The filter ID or null.
      */
     public getFilterIdByName(filterName: string): string | null {
         return null;
@@ -150,18 +167,20 @@ export class StubStore implements IStore {
 
     /**
      * Set a filter name to ID mapping.
+     * @param {string} filterName
+     * @param {string} filterId
      */
-    public setFilterIdByName(filterName: string, filterId?: string): void {}
+    public setFilterIdByName(filterName: string, filterId: string) {}
 
     /**
      * Store user-scoped account data events
-     * @param events - The events to store.
+     * @param {Array<MatrixEvent>} events The events to store.
      */
-    public storeAccountDataEvents(events: MatrixEvent[]): void {}
+    public storeAccountDataEvents(events: MatrixEvent[]) {}
 
     /**
      * Get account data event by event type
-     * @param eventType - The event type being queried
+     * @param {string} eventType The event type being queried
      */
     public getAccountData(eventType: EventType | string): MatrixEvent | undefined {
         return undefined;
@@ -170,8 +189,8 @@ export class StubStore implements IStore {
     /**
      * setSyncData does nothing as there is no backing data store.
      *
-     * @param syncData - The sync data
-     * @returns An immediately resolved promise.
+     * @param {Object} syncData The sync data
+     * @return {Promise} An immediately resolved promise.
      */
     public setSyncData(syncData: ISyncResponse): Promise<void> {
         return Promise.resolve();
@@ -180,7 +199,7 @@ export class StubStore implements IStore {
     /**
      * We never want to save because we have nothing to save to.
      *
-     * @returns If the store wants to save
+     * @return {boolean} If the store wants to save
      */
     public wantsSave(): boolean {
         return false;
@@ -189,29 +208,27 @@ export class StubStore implements IStore {
     /**
      * Save does nothing as there is no backing data store.
      */
-    public save(): Promise<void> {
-        return Promise.resolve();
-    }
+    public save() {}
 
     /**
      * Startup does nothing.
-     * @returns An immediately resolved promise.
+     * @return {Promise} An immediately resolved promise.
      */
     public startup(): Promise<void> {
         return Promise.resolve();
     }
 
     /**
-     * @returns Promise which resolves with a sync response to restore the
+     * @return {Promise} Resolves with a sync response to restore the
      * client state to where it was at the last save, or null if there
      * is no saved sync data.
      */
-    public getSavedSync(): Promise<ISavedSync | null> {
+    public getSavedSync(): Promise<ISavedSync> {
         return Promise.resolve(null);
     }
 
     /**
-     * @returns If there is a saved sync, the nextBatch token
+     * @return {Promise} If there is a saved sync, the nextBatch token
      * for this sync, otherwise null.
      */
     public getSavedSyncToken(): Promise<string | null> {
@@ -221,13 +238,13 @@ export class StubStore implements IStore {
     /**
      * Delete all data from this store. Does nothing since this store
      * doesn't store anything.
-     * @returns An immediately resolved promise.
+     * @return {Promise} An immediately resolved promise.
      */
     public deleteAllData(): Promise<void> {
         return Promise.resolve();
     }
 
-    public getOutOfBandMembers(): Promise<IStateEventWithRoomId[] | null> {
+    public getOutOfBandMembers(): Promise<IStateEventWithRoomId[]> {
         return Promise.resolve(null);
     }
 
@@ -239,11 +256,11 @@ export class StubStore implements IStore {
         return Promise.resolve();
     }
 
-    public getClientOptions(): Promise<IStoredClientOpts | undefined> {
-        return Promise.resolve(undefined);
+    public getClientOptions(): Promise<object> {
+        return Promise.resolve({});
     }
 
-    public storeClientOptions(options: IStoredClientOpts): Promise<void> {
+    public storeClientOptions(options: object): Promise<void> {
         return Promise.resolve();
     }
 
@@ -265,9 +282,5 @@ export class StubStore implements IStore {
 
     public async removeToDeviceBatch(id: number): Promise<void> {
         return Promise.resolve();
-    }
-
-    public async destroy(): Promise<void> {
-        // Nothing to do
     }
 }

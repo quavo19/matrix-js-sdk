@@ -14,17 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import { EitherAnd } from "matrix-events-sdk";
+import { EitherAnd, IMessageRendering } from "matrix-events-sdk";
 
 import { UnstableValue } from "../NamespacedValue";
-import { IMessageRendering } from "./extensible_events";
 
 /**
  * Extensible topic event type based on MSC3765
  * https://github.com/matrix-org/matrix-spec-proposals/pull/3765
- *
- * @example
- * ```
+ */
+
+/**
+ * Eg
  * {
  *      "type": "m.room.topic,
  *      "state_key": "",
@@ -39,7 +39,6 @@ import { IMessageRendering } from "./extensible_events";
  *          }],
  *      }
  * }
- * ```
  */
 
 /**

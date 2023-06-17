@@ -14,14 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import { ToDeviceMessageId } from "./@types/event";
 import { logger } from "./logger";
-import { MatrixClient, ClientEvent } from "./client";
-import { MatrixError } from "./http-api";
+import { MatrixClient } from "./matrix";
 import { IndexedToDeviceBatch, ToDeviceBatch, ToDeviceBatchWithTxnId, ToDevicePayload } from "./models/ToDeviceMessage";
 import { MatrixScheduler } from "./scheduler";
-import { SyncState } from "./sync";
-import { MapWithDefault } from "./utils";
 
 const MAX_BATCH_SIZE = 20;
 
@@ -32,40 +28,31 @@ const MAX_BATCH_SIZE = 20;
 export class ToDeviceMessageQueue {
     private sending = false;
     private running = true;
-    private retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    private retryTimeout: number = null;
     private retryAttempts = 0;
 
-    public constructor(private client: MatrixClient) {}
+    constructor(private client: MatrixClient) {
+    }
 
     public start(): void {
         this.running = true;
         this.sendQueue();
-        this.client.on(ClientEvent.Sync, this.onResumedSync);
     }
 
     public stop(): void {
         this.running = false;
         if (this.retryTimeout !== null) clearTimeout(this.retryTimeout);
         this.retryTimeout = null;
-        this.client.removeListener(ClientEvent.Sync, this.onResumedSync);
     }
 
     public async queueBatch(batch: ToDeviceBatch): Promise<void> {
         const batches: ToDeviceBatchWithTxnId[] = [];
         for (let i = 0; i < batch.batch.length; i += MAX_BATCH_SIZE) {
-            const batchWithTxnId = {
+            batches.push({
                 eventType: batch.eventType,
                 batch: batch.batch.slice(i, i + MAX_BATCH_SIZE),
                 txnId: this.client.makeTxnId(),
-            };
-            batches.push(batchWithTxnId);
-            const msgmap = batchWithTxnId.batch.map(
-                (msg) => `${msg.userId}/${msg.deviceId} (msgid ${msg.payload[ToDeviceMessageId]})`,
-            );
-            logger.info(
-                `Enqueuing batch of to-device messages. type=${batch.eventType} txnid=${batchWithTxnId.txnId}`,
-                msgmap,
-            );
+            });
         }
 
         await this.client.store.saveToDeviceBatches(batches);
@@ -81,7 +68,7 @@ export class ToDeviceMessageQueue {
         logger.debug("Attempting to send queued to-device messages");
 
         this.sending = true;
-        let headBatch: IndexedToDeviceBatch | null;
+        let headBatch;
         try {
             while (this.running) {
                 headBatch = await this.client.store.getOldestToDeviceBatch();
@@ -99,13 +86,13 @@ export class ToDeviceMessageQueue {
             ++this.retryAttempts;
             // eslint-disable-next-line @typescript-eslint/naming-convention
             // eslint-disable-next-line new-cap
-            const retryDelay = MatrixScheduler.RETRY_BACKOFF_RATELIMIT(null, this.retryAttempts, <MatrixError>e);
+            const retryDelay = MatrixScheduler.RETRY_BACKOFF_RATELIMIT(null, this.retryAttempts, e);
             if (retryDelay === -1) {
                 // the scheduler function doesn't differentiate between fatal errors and just getting
                 // bored and giving up for now
-                if (Math.floor((<MatrixError>e).httpStatus! / 100) === 4) {
+                if (Math.floor(e.httpStatus / 100) === 4) {
                     logger.error("Fatal error when sending to-device message - dropping to-device batch!", e);
-                    await this.client.store.removeToDeviceBatch(headBatch!.id);
+                    await this.client.store.removeToDeviceBatch(headBatch.id);
                 } else {
                     logger.info("Automatic retry limit reached for to-device messages.");
                 }
@@ -123,26 +110,16 @@ export class ToDeviceMessageQueue {
      * Attempts to send a batch of to-device messages.
      */
     private async sendBatch(batch: IndexedToDeviceBatch): Promise<void> {
-        const contentMap: MapWithDefault<string, Map<string, ToDevicePayload>> = new MapWithDefault(() => new Map());
+        const contentMap: Record<string, Record<string, ToDevicePayload>> = {};
         for (const item of batch.batch) {
-            contentMap.getOrCreate(item.userId).set(item.deviceId, item.payload);
+            if (!contentMap[item.userId]) {
+                contentMap[item.userId] = {};
+            }
+            contentMap[item.userId][item.deviceId] = item.payload;
         }
 
-        logger.info(
-            `Sending batch of ${batch.batch.length} to-device messages with ID ${batch.id} and txnId ${batch.txnId}`,
-        );
+        logger.info(`Sending batch of ${batch.batch.length} to-device messages with ID ${batch.id}`);
 
         await this.client.sendToDevice(batch.eventType, contentMap, batch.txnId);
     }
-
-    /**
-     * Listen to sync state changes and automatically resend any pending events
-     * once syncing is resumed
-     */
-    private onResumedSync = (state: SyncState | null, oldState: SyncState | null): void => {
-        if (state === SyncState.Syncing && oldState !== SyncState.Syncing) {
-            logger.info(`Resuming queue after resumed sync`);
-            this.sendQueue();
-        }
-    };
 }

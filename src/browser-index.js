@@ -14,30 +14,42 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import request from "browser-request";
+import queryString from "qs";
+
 import * as matrixcs from "./matrix";
 
-type BrowserMatrix = typeof matrixcs;
-declare global {
-    /* eslint-disable no-var, camelcase */
-    var __js_sdk_entrypoint: boolean;
-    var matrixcs: BrowserMatrix;
-    /* eslint-enable no-var */
-}
-
-if (global.__js_sdk_entrypoint) {
+if (matrixcs.getRequest()) {
     throw new Error("Multiple matrix-js-sdk entrypoints detected!");
 }
-global.__js_sdk_entrypoint = true;
 
-// just *accessing* indexedDB throws an exception in firefox with indexeddb disabled.
-let indexedDB: IDBFactory | undefined;
+matrixcs.request(function(opts, fn) {
+    // We manually fix the query string for browser-request because
+    // it doesn't correctly handle cases like ?via=one&via=two. Instead
+    // we mimic `request`'s query string interface to make it all work
+    // as expected.
+    // browser-request will happily take the constructed string as the
+    // query string without trying to modify it further.
+    opts.qs = queryString.stringify(opts.qs || {}, opts.qsStringifyOptions);
+    return request(opts, fn);
+});
+
+// just *accessing* indexedDB throws an exception in firefox with
+// indexeddb disabled.
+let indexedDB;
 try {
     indexedDB = global.indexedDB;
 } catch (e) {}
 
 // if our browser (appears to) support indexeddb, use an indexeddb crypto store.
 if (indexedDB) {
-    matrixcs.setCryptoStoreFactory(() => new matrixcs.IndexedDBCryptoStore(indexedDB!, "matrix-js-sdk:crypto"));
+    matrixcs.setCryptoStoreFactory(
+        function() {
+            return new matrixcs.IndexedDBCryptoStore(
+                indexedDB, "matrix-js-sdk:crypto",
+            );
+        },
+    );
 }
 
 // We export 3 things to make browserify happy as well as downstream projects.

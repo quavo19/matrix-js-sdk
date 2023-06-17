@@ -17,8 +17,7 @@ limitations under the License.
 export interface IImageInfo {
     size?: number;
     mimetype?: string;
-    thumbnail_info?: {
-        // eslint-disable-line camelcase
+    thumbnail_info?: { // eslint-disable-line camelcase
         w?: number;
         h?: number;
         size?: number;
@@ -40,6 +39,11 @@ export enum Preset {
 }
 
 export type ResizeMethod = "crop" | "scale";
+
+// TODO move to http-api after TSification
+export interface IAbortablePromise<T> extends Promise<T> {
+    abort(): void;
+}
 
 export type IdServerUnbindResult = "no-support" | "success";
 

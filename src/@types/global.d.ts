@@ -30,8 +30,6 @@ declare global {
     namespace NodeJS {
         interface Global {
             localStorage: Storage;
-            // marker variable used to detect both the browser & node entrypoints being used at once
-            __js_sdk_entrypoint: unknown;
         }
     }
 
@@ -51,22 +49,18 @@ declare global {
     }
 
     interface DesktopCapturerConstraints {
-        audio:
-            | boolean
-            | {
-                  mandatory: {
-                      chromeMediaSource: string;
-                      chromeMediaSourceId: string;
-                  };
-              };
-        video:
-            | boolean
-            | {
-                  mandatory: {
-                      chromeMediaSource: string;
-                      chromeMediaSourceId: string;
-                  };
-              };
+        audio: boolean | {
+            mandatory: {
+                chromeMediaSource: string;
+                chromeMediaSourceId: string;
+            };
+        };
+        video: boolean | {
+            mandatory: {
+                chromeMediaSource: string;
+                chromeMediaSourceId: string;
+            };
+        };
     }
 
     interface DummyInterfaceWeShouldntBeUsingThis {}

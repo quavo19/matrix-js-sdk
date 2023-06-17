@@ -13,39 +13,42 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+/**
+ * @module content-repo
+ */
 
-import { encodeParams } from "./utils";
+import * as utils from "./utils";
 
 /**
  * Get the HTTP URL for an MXC URI.
- * @param baseUrl - The base homeserver url which has a content repo.
- * @param mxc - The mxc:// URI.
- * @param width - The desired width of the thumbnail.
- * @param height - The desired height of the thumbnail.
- * @param resizeMethod - The thumbnail resize method to use, either
+ * @param {string} baseUrl The base homeserver url which has a content repo.
+ * @param {string} mxc The mxc:// URI.
+ * @param {Number} width The desired width of the thumbnail.
+ * @param {Number} height The desired height of the thumbnail.
+ * @param {string} resizeMethod The thumbnail resize method to use, either
  * "crop" or "scale".
- * @param allowDirectLinks - If true, return any non-mxc URLs
+ * @param {Boolean} allowDirectLinks If true, return any non-mxc URLs
  * directly. Fetching such URLs will leak information about the user to
  * anyone they share a room with. If false, will return the emptry string
  * for such URLs.
- * @returns The complete URL to the content.
+ * @return {string} The complete URL to the content.
  */
 export function getHttpUriForMxc(
     baseUrl: string,
-    mxc?: string,
+    mxc: string,
     width?: number,
     height?: number,
     resizeMethod?: string,
     allowDirectLinks = false,
 ): string {
     if (typeof mxc !== "string" || !mxc) {
-        return "";
+        return '';
     }
     if (mxc.indexOf("mxc://") !== 0) {
         if (allowDirectLinks) {
             return mxc;
         } else {
-            return "";
+            return '';
         }
     }
     let serverAndMediaId = mxc.slice(6); // strips mxc://
@@ -74,6 +77,6 @@ export function getHttpUriForMxc(
         serverAndMediaId = serverAndMediaId.slice(0, fragmentOffset);
     }
 
-    const urlParams = Object.keys(params).length === 0 ? "" : "?" + encodeParams(params);
+    const urlParams = (Object.keys(params).length === 0 ? "" : ("?" + utils.encodeParams(params)));
     return baseUrl + prefix + serverAndMediaId + urlParams + fragment;
 }

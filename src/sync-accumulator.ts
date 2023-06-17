@@ -1,5 +1,5 @@
 /*
-Copyright 2017 - 2023 The Matrix.org Foundation C.I.C.
+Copyright 2017 - 2021 The Matrix.org Foundation C.I.C.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,31 +16,23 @@ limitations under the License.
 
 /**
  * This is an internal module. See {@link SyncAccumulator} for the public class.
+ * @module sync-accumulator
  */
 
-import { logger } from "./logger";
-import { deepCopy } from "./utils";
+import { logger } from './logger';
+import { deepCopy, isSupportedReceiptType } from "./utils";
 import { IContent, IUnsigned } from "./models/event";
 import { IRoomSummary } from "./models/room-summary";
 import { EventType } from "./@types/event";
-import { UNREAD_THREAD_NOTIFICATIONS } from "./@types/sync";
-import { ReceiptAccumulator } from "./receipt-accumulator";
+import { ReceiptType } from "./@types/read_receipts";
 
 interface IOpts {
-    /**
-     * The ideal maximum number of timeline entries to keep in the sync response.
-     * This is best-effort, as clients do not always have a back-pagination token for each event,
-     * so it's possible there may be slightly *less* than this value. There will never be more.
-     * This cannot be 0 or else it makes it impossible to scroll back in a room.
-     * Default: 50.
-     */
     maxTimelineEntries?: number;
 }
 
 export interface IMinimalEvent {
     content: IContent;
     type: EventType | string;
-    room_id?: string;
     unsigned?: IUnsigned;
 }
 
@@ -49,7 +41,7 @@ export interface IEphemeral {
 }
 
 /* eslint-disable camelcase */
-interface UnreadNotificationCounts {
+interface IUnreadNotificationCounts {
     highlight_count?: number;
     notification_count?: number;
 }
@@ -74,18 +66,16 @@ interface IState {
 export interface ITimeline {
     events: Array<IRoomEvent | IStateEvent>;
     limited?: boolean;
-    prev_batch: string | null;
+    prev_batch: string;
 }
 
 export interface IJoinedRoom {
-    "summary": IRoomSummary;
-    "state": IState;
-    "timeline": ITimeline;
-    "ephemeral": IEphemeral;
-    "account_data": IAccountData;
-    "unread_notifications": UnreadNotificationCounts;
-    "unread_thread_notifications"?: Record<string, UnreadNotificationCounts>;
-    "org.matrix.msc3773.unread_thread_notifications"?: Record<string, UnreadNotificationCounts>;
+    summary: IRoomSummary;
+    state: IState;
+    timeline: ITimeline;
+    ephemeral: IEphemeral;
+    account_data: IAccountData;
+    unread_notifications: IUnreadNotificationCounts;
 }
 
 export interface IStrippedState {
@@ -123,7 +113,7 @@ interface IAccountData {
     events: IMinimalEvent[];
 }
 
-export interface IToDeviceEvent {
+interface IToDeviceEvent {
     content: IContent;
     sender: string;
     type: string;
@@ -133,22 +123,19 @@ interface IToDevice {
     events: IToDeviceEvent[];
 }
 
-export interface IDeviceLists {
-    changed?: string[];
-    left?: string[];
+interface IDeviceLists {
+    changed: string[];
+    left: string[];
 }
 
 export interface ISyncResponse {
-    "next_batch": string;
-    "rooms": IRooms;
-    "presence"?: IPresence;
-    "account_data": IAccountData;
-    "to_device"?: IToDevice;
-    "device_lists"?: IDeviceLists;
-    "device_one_time_keys_count"?: Record<string, number>;
-
-    "device_unused_fallback_key_types"?: string[];
-    "org.matrix.msc2732.device_unused_fallback_key_types"?: string[];
+    next_batch: string;
+    rooms: IRooms;
+    presence?: IPresence;
+    account_data: IAccountData;
+    to_device?: IToDevice;
+    device_lists?: IDeviceLists;
+    device_one_time_keys_count?: Record<string, number>;
 }
 /* eslint-enable camelcase */
 
@@ -166,21 +153,20 @@ interface IRoom {
     }[];
     _summary: Partial<IRoomSummary>;
     _accountData: { [eventType: string]: IMinimalEvent };
-    _unreadNotifications: Partial<UnreadNotificationCounts>;
-    _unreadThreadNotifications?: Record<string, Partial<UnreadNotificationCounts>>;
-    _receipts: ReceiptAccumulator;
+    _unreadNotifications: Partial<IUnreadNotificationCounts>;
+    _readReceipts: {
+        [userId: string]: {
+            data: IMinimalEvent;
+            type: ReceiptType;
+            eventId: string;
+        };
+    };
 }
 
 export interface ISyncData {
     nextBatch: string;
     accountData: IMinimalEvent[];
     roomsData: IRooms;
-}
-
-type TaggedEvent = IRoomEvent & { _localTs?: number };
-
-function isTaggedEvent(event: IRoomEvent): event is TaggedEvent {
-    return "_localTs" in event && event["_localTs"] !== undefined;
 }
 
 /**
@@ -201,9 +187,18 @@ export class SyncAccumulator {
     // accumulated. We remember this so that any caller can obtain a
     // coherent /sync response and know at what point they should be
     // streaming from without losing events.
-    private nextBatch: string | null = null;
+    private nextBatch: string = null;
 
-    public constructor(private readonly opts: IOpts = {}) {
+    /**
+     * @param {Object} opts
+     * @param {Number=} opts.maxTimelineEntries The ideal maximum number of
+     * timeline entries to keep in the sync response. This is best-effort, as
+     * clients do not always have a back-pagination token for each event, so
+     * it's possible there may be slightly *less* than this value. There will
+     * never be more. This cannot be 0 or else it makes it impossible to scroll
+     * back in a room. Default: 50.
+     */
+    constructor(private readonly opts: IOpts = {}) {
         this.opts.maxTimelineEntries = this.opts.maxTimelineEntries || 50;
     }
 
@@ -225,8 +220,8 @@ export class SyncAccumulator {
 
     /**
      * Accumulate incremental /sync room data.
-     * @param syncResponse - the complete /sync JSON
-     * @param fromDatabase - True if the sync response is one saved to the database
+     * @param {Object} syncResponse the complete /sync JSON
+     * @param {boolean} fromDatabase True if the sync response is one saved to the database
      */
     private accumulateRooms(syncResponse: ISyncResponse, fromDatabase = false): void {
         if (!syncResponse.rooms) {
@@ -270,8 +265,7 @@ export class SyncAccumulator {
                 break;
 
             case Category.Join:
-                if (this.inviteRooms[roomId]) {
-                    // (1)
+                if (this.inviteRooms[roomId]) { // (1)
                     // was previously invite, now join. We expect /sync to give
                     // the entire state and timeline on 'join', so delete previous
                     // invite state
@@ -282,11 +276,9 @@ export class SyncAccumulator {
                 break;
 
             case Category.Leave:
-                if (this.inviteRooms[roomId]) {
-                    // (4)
+                if (this.inviteRooms[roomId]) { // (4)
                     delete this.inviteRooms[roomId];
-                } else {
-                    // (2)
+                } else { // (2)
                     delete this.joinRooms[roomId];
                 }
                 break;
@@ -297,8 +289,7 @@ export class SyncAccumulator {
     }
 
     private accumulateInviteState(roomId: string, data: IInvitedRoom): void {
-        if (!data.invite_state || !data.invite_state.events) {
-            // no new data
+        if (!data.invite_state || !data.invite_state.events) { // no new data
             return;
         }
         if (!this.inviteRooms[roomId]) {
@@ -371,9 +362,8 @@ export class SyncAccumulator {
                 _timeline: [],
                 _accountData: Object.create(null),
                 _unreadNotifications: {},
-                _unreadThreadNotifications: {},
                 _summary: {},
-                _receipts: new ReceiptAccumulator(),
+                _readReceipts: {},
             };
         }
         const currentData = this.joinRooms[roomId];
@@ -389,9 +379,6 @@ export class SyncAccumulator {
         if (data.unread_notifications) {
             currentData._unreadNotifications = data.unread_notifications;
         }
-        currentData._unreadThreadNotifications =
-            data[UNREAD_THREAD_NOTIFICATIONS.stable!] ?? data[UNREAD_THREAD_NOTIFICATIONS.unstable!] ?? undefined;
-
         if (data.summary) {
             const HEROES_KEY = "m.heroes";
             const INVITED_COUNT_KEY = "m.invited_member_count";
@@ -399,22 +386,52 @@ export class SyncAccumulator {
 
             const acc = currentData._summary;
             const sum = data.summary;
-            acc[HEROES_KEY] = sum[HEROES_KEY] ?? acc[HEROES_KEY];
-            acc[JOINED_COUNT_KEY] = sum[JOINED_COUNT_KEY] ?? acc[JOINED_COUNT_KEY];
-            acc[INVITED_COUNT_KEY] = sum[INVITED_COUNT_KEY] ?? acc[INVITED_COUNT_KEY];
+            acc[HEROES_KEY] = sum[HEROES_KEY] || acc[HEROES_KEY];
+            acc[JOINED_COUNT_KEY] = sum[JOINED_COUNT_KEY] || acc[JOINED_COUNT_KEY];
+            acc[INVITED_COUNT_KEY] = sum[INVITED_COUNT_KEY] || acc[INVITED_COUNT_KEY];
         }
 
-        // We purposefully do not persist m.typing events.
-        // Technically you could refresh a browser before the timer on a
-        // typing event is up, so it'll look like you aren't typing when
-        // you really still are. However, the alternative is worse. If
-        // we do persist typing events, it will look like people are
-        // typing forever until someone really does start typing (which
-        // will prompt Synapse to send down an actual m.typing event to
-        // clobber the one we persisted).
+        if (data.ephemeral && data.ephemeral.events) {
+            data.ephemeral.events.forEach((e) => {
+                // We purposefully do not persist m.typing events.
+                // Technically you could refresh a browser before the timer on a
+                // typing event is up, so it'll look like you aren't typing when
+                // you really still are. However, the alternative is worse. If
+                // we do persist typing events, it will look like people are
+                // typing forever until someone really does start typing (which
+                // will prompt Synapse to send down an actual m.typing event to
+                // clobber the one we persisted).
+                if (e.type !== "m.receipt" || !e.content) {
+                    // This means we'll drop unknown ephemeral events but that
+                    // seems okay.
+                    return;
+                }
+                // Handle m.receipt events. They clobber based on:
+                //   (user_id, receipt_type)
+                // but they are keyed in the event as:
+                //   content:{ $event_id: { $receipt_type: { $user_id: {json} }}}
+                // so store them in the former so we can accumulate receipt deltas
+                // quickly and efficiently (we expect a lot of them). Fold the
+                // receipt type into the key name since we only have 1 at the
+                // moment (m.read) and nested JSON objects are slower and more
+                // of a hassle to work with. We'll inflate this back out when
+                // getJSON() is called.
+                Object.keys(e.content).forEach((eventId) => {
+                    Object.entries(e.content[eventId]).forEach(([key, value]) => {
+                        if (!isSupportedReceiptType(key)) return;
 
-        // Persist the receipts
-        currentData._receipts.consumeEphemeralEvents(data.ephemeral?.events);
+                        Object.keys(value).forEach((userId) => {
+                            // clobber on user ID
+                            currentData._readReceipts[userId] = {
+                                data: e.content[eventId][key][userId],
+                                type: key as ReceiptType,
+                                eventId: eventId,
+                            };
+                        });
+                    });
+                });
+            });
+        }
 
         // if we got a limited sync, we need to remove all timeline entries or else
         // we will have gaps in the timeline.
@@ -426,40 +443,48 @@ export class SyncAccumulator {
         // - existing state which didn't come down /sync.
         // - State events under the 'state' key.
         // - State events in the 'timeline'.
-        data.state?.events?.forEach((e) => {
-            setState(currentData._currentState, e);
-        });
-        data.timeline?.events?.forEach((e, index) => {
-            // this nops if 'e' isn't a state event
-            setState(currentData._currentState, e);
-            // append the event to the timeline. The back-pagination token
-            // corresponds to the first event in the timeline
-            let transformedEvent: TaggedEvent;
-            if (!fromDatabase) {
-                transformedEvent = Object.assign({}, e);
-                if (transformedEvent.unsigned !== undefined) {
-                    transformedEvent.unsigned = Object.assign({}, transformedEvent.unsigned);
-                }
-                const age = e.unsigned ? e.unsigned.age : e.age;
-                if (age !== undefined) transformedEvent._localTs = Date.now() - age;
-            } else {
-                transformedEvent = e;
-            }
-
-            currentData._timeline.push({
-                event: transformedEvent,
-                token: index === 0 ? data.timeline.prev_batch ?? null : null,
+        if (data.state && data.state.events) {
+            data.state.events.forEach((e) => {
+                setState(currentData._currentState, e);
             });
-        });
+        }
+        if (data.timeline && data.timeline.events) {
+            data.timeline.events.forEach((e, index) => {
+                // this nops if 'e' isn't a state event
+                setState(currentData._currentState, e);
+                // append the event to the timeline. The back-pagination token
+                // corresponds to the first event in the timeline
+                let transformedEvent: IRoomEvent & { _localTs?: number };
+                if (!fromDatabase) {
+                    transformedEvent = Object.assign({}, e);
+                    if (transformedEvent.unsigned !== undefined) {
+                        transformedEvent.unsigned = Object.assign({}, transformedEvent.unsigned);
+                    }
+                    const age = e.unsigned ? e.unsigned.age : e.age;
+                    if (age !== undefined) transformedEvent._localTs = Date.now() - age;
+                } else {
+                    transformedEvent = e;
+                }
+
+                currentData._timeline.push({
+                    event: transformedEvent,
+                    token: index === 0 ? data.timeline.prev_batch : null,
+                });
+            });
+        }
 
         // attempt to prune the timeline by jumping between events which have
         // pagination tokens.
-        if (currentData._timeline.length > this.opts.maxTimelineEntries!) {
-            const startIndex = currentData._timeline.length - this.opts.maxTimelineEntries!;
+        if (currentData._timeline.length > this.opts.maxTimelineEntries) {
+            const startIndex = (
+                currentData._timeline.length - this.opts.maxTimelineEntries
+            );
             for (let i = startIndex; i < currentData._timeline.length; i++) {
                 if (currentData._timeline[i].token) {
                     // keep all events after this, including this one
-                    currentData._timeline = currentData._timeline.slice(i, currentData._timeline.length);
+                    currentData._timeline = currentData._timeline.slice(
+                        i, currentData._timeline.length,
+                    );
                     break;
                 }
             }
@@ -471,8 +496,8 @@ export class SyncAccumulator {
      * represents all room data that should be stored. This should be paired
      * with the sync token which represents the most recent /sync response
      * provided to accumulate().
-     * @param forDatabase - True to generate a sync to be saved to storage
-     * @returns An object with a "nextBatch", "roomsData" and "accountData"
+     * @param {boolean} forDatabase True to generate a sync to be saved to storage
+     * @return {Object} An object with a "nextBatch", "roomsData" and "accountData"
      * keys.
      * The "nextBatch" key is a string which represents at what point in the
      * /sync stream the accumulator reached. This token should be used when
@@ -503,7 +528,7 @@ export class SyncAccumulator {
         });
         Object.keys(this.joinRooms).forEach((roomId) => {
             const roomData = this.joinRooms[roomId];
-            const roomJson: IJoinedRoom = {
+            const roomJson = {
                 ephemeral: { events: [] },
                 account_data: { events: [] },
                 state: { events: [] },
@@ -512,7 +537,6 @@ export class SyncAccumulator {
                     prev_batch: null,
                 },
                 unread_notifications: roomData._unreadNotifications,
-                unread_thread_notifications: roomData._unreadThreadNotifications,
                 summary: roomData._summary as IRoomSummary,
             };
             // Add account data
@@ -520,10 +544,28 @@ export class SyncAccumulator {
                 roomJson.account_data.events.push(roomData._accountData[evType]);
             });
 
-            const receiptEvent = roomData._receipts.buildAccumulatedReceiptEvent(roomId);
-
+            // Add receipt data
+            const receiptEvent = {
+                type: "m.receipt",
+                room_id: roomId,
+                content: {
+                    // $event_id: { "m.read": { $user_id: $json } }
+                },
+            };
+            Object.keys(roomData._readReceipts).forEach((userId) => {
+                const receiptData = roomData._readReceipts[userId];
+                if (!receiptEvent.content[receiptData.eventId]) {
+                    receiptEvent.content[receiptData.eventId] = {};
+                }
+                if (!receiptEvent.content[receiptData.eventId][receiptData.type]) {
+                    receiptEvent.content[receiptData.eventId][receiptData.type] = {};
+                }
+                receiptEvent.content[receiptData.eventId][receiptData.type][userId] = (
+                    receiptData.data
+                );
+            });
             // add only if we have some receipt data
-            if (receiptEvent) {
+            if (Object.keys(receiptEvent.content).length > 0) {
                 roomJson.ephemeral.events.push(receiptEvent);
             }
 
@@ -539,8 +581,8 @@ export class SyncAccumulator {
                 }
 
                 let transformedEvent: (IRoomEvent | IStateEvent) & { _localTs?: number };
-                if (!forDatabase && isTaggedEvent(msgData.event)) {
-                    // This means we have to copy each event, so we can fix it up to
+                if (!forDatabase && msgData.event["_localTs"]) {
+                    // This means we have to copy each event so we can fix it up to
                     // set a correct 'age' parameter whilst keeping the local timestamp
                     // on our stored event. If this turns out to be a bottleneck, it could
                     // be optimised either by doing this in the main process after the data
@@ -554,7 +596,7 @@ export class SyncAccumulator {
                     }
                     delete transformedEvent._localTs;
                     transformedEvent.unsigned = transformedEvent.unsigned || {};
-                    transformedEvent.unsigned.age = Date.now() - msgData.event._localTs!;
+                    transformedEvent.unsigned.age = Date.now() - msgData.event["_localTs"];
                 } else {
                     transformedEvent = msgData.event;
                 }
@@ -565,12 +607,10 @@ export class SyncAccumulator {
             // by "reverse clobbering" from the end of the timeline to the start.
             // Convert maps back into arrays.
             const rollBackState = Object.create(null);
-            for (let i = roomJson.timeline.events.length - 1; i >= 0; i--) {
+            for (let i = roomJson.timeline.events.length - 1; i >=0; i--) {
                 const timelineEvent = roomJson.timeline.events[i];
-                if (
-                    (timelineEvent as IStateEvent).state_key === null ||
-                    (timelineEvent as IStateEvent).state_key === undefined
-                ) {
+                if (timelineEvent.state_key === null ||
+                        timelineEvent.state_key === undefined) {
                     continue; // not a state event
                 }
                 // since we're going back in time, we need to use the previous
@@ -607,14 +647,14 @@ export class SyncAccumulator {
         });
 
         return {
-            nextBatch: this.nextBatch!,
+            nextBatch: this.nextBatch,
             roomsData: data,
             accountData: accData,
         };
     }
 
     public getNextBatchToken(): string {
-        return this.nextBatch!;
+        return this.nextBatch;
     }
 }
 

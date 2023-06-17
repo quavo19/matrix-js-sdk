@@ -33,7 +33,10 @@ export enum EventType {
     RoomGuestAccess = "m.room.guest_access",
     RoomServerAcl = "m.room.server_acl",
     RoomTombstone = "m.room.tombstone",
-    RoomPredecessor = "org.matrix.msc3946.room_predecessor",
+    /**
+     * @deprecated Should not be used.
+     */
+    RoomAliases = "m.room.aliases", // deprecated https://matrix.org/docs/spec/client_server/r0.6.1#historical-events
 
     SpaceChild = "m.space.child",
     SpaceParent = "m.space.parent",
@@ -60,14 +63,9 @@ export enum EventType {
     KeyVerificationCancel = "m.key.verification.cancel",
     KeyVerificationMac = "m.key.verification.mac",
     KeyVerificationDone = "m.key.verification.done",
-    KeyVerificationKey = "m.key.verification.key",
-    KeyVerificationAccept = "m.key.verification.accept",
-    // Not used directly - see READY_TYPE in VerificationRequest.
-    KeyVerificationReady = "m.key.verification.ready",
     // use of this is discouraged https://matrix.org/docs/spec/client_server/r0.6.1#m-room-message-feedback
     RoomMessageFeedback = "m.room.message.feedback",
     Reaction = "m.reaction",
-    PollStart = "org.matrix.msc3381.poll.start",
 
     // Room ephemeral events
     Typing = "m.typing",
@@ -89,10 +87,6 @@ export enum EventType {
     RoomKeyRequest = "m.room_key_request",
     ForwardedRoomKey = "m.forwarded_room_key",
     Dummy = "m.dummy",
-
-    // Group call events
-    GroupCallPrefix = "org.matrix.msc3401.call",
-    GroupCallMemberPrefix = "org.matrix.msc3401.call.member",
 }
 
 export enum RelationType {
@@ -121,8 +115,6 @@ export enum RoomType {
     UnstableCall = "org.matrix.msc3417.call",
     ElementVideo = "io.element.video",
 }
-
-export const ToDeviceMessageId = "org.matrix.msgid";
 
 /**
  * Identifier for an [MSC3088](https://github.com/matrix-org/matrix-doc/pull/3088)
@@ -168,40 +160,26 @@ export const UNSTABLE_MSC3089_BRANCH = new UnstableValue("m.branch", "org.matrix
 export const UNSTABLE_MSC2716_MARKER = new UnstableValue("m.room.marker", "org.matrix.msc2716.marker");
 
 /**
- * Name of the request property for relation based redactions.
- * {@link https://github.com/matrix-org/matrix-spec-proposals/pull/3912}
- */
-export const MSC3912_RELATION_BASED_REDACTIONS_PROP = new UnstableValue(
-    "with_rel_types",
-    "org.matrix.msc3912.with_relations",
-);
-
-/**
  * Functional members type for declaring a purpose of room members (e.g. helpful bots).
  * Note that this reference is UNSTABLE and subject to breaking changes, including its
  * eventual removal.
  *
  * Schema (TypeScript):
- * ```
  * {
  *   service_members?: string[]
  * }
- * ```
  *
- * @example
- * ```
+ * Example:
  * {
  *   "service_members": [
  *     "@helperbot:localhost",
  *     "@reminderbot:alice.tdl"
  *   ]
  * }
- * ```
  */
 export const UNSTABLE_ELEMENT_FUNCTIONAL_USERS = new UnstableValue(
     "io.element.functional_members",
-    "io.element.functional_members",
-);
+    "io.element.functional_members");
 
 /**
  * A type of message that affects visibility of a message,
@@ -209,38 +187,9 @@ export const UNSTABLE_ELEMENT_FUNCTIONAL_USERS = new UnstableValue(
  *
  * @experimental
  */
-export const EVENT_VISIBILITY_CHANGE_TYPE = new UnstableValue("m.visibility", "org.matrix.msc3531.visibility");
-
-/**
- * https://github.com/matrix-org/matrix-doc/pull/3881
- *
- * @experimental
- */
-export const PUSHER_ENABLED = new UnstableValue("enabled", "org.matrix.msc3881.enabled");
-
-/**
- * https://github.com/matrix-org/matrix-doc/pull/3881
- *
- * @experimental
- */
-export const PUSHER_DEVICE_ID = new UnstableValue("device_id", "org.matrix.msc3881.device_id");
-
-/**
- * https://github.com/matrix-org/matrix-doc/pull/3890
- *
- * @experimental
- */
-export const LOCAL_NOTIFICATION_SETTINGS_PREFIX = new UnstableValue(
-    "m.local_notification_settings",
-    "org.matrix.msc3890.local_notification_settings",
-);
-
-/**
- * https://github.com/matrix-org/matrix-doc/pull/4023
- *
- * @experimental
- */
-export const UNSIGNED_THREAD_ID_FIELD = new UnstableValue("thread_id", "org.matrix.msc4023.thread_id");
+export const EVENT_VISIBILITY_CHANGE_TYPE = new UnstableValue(
+    "m.visibility",
+    "org.matrix.msc3531.visibility");
 
 export interface IEncryptedFile {
     url: string;
@@ -253,6 +202,6 @@ export interface IEncryptedFile {
         ext: boolean;
     };
     iv: string;
-    hashes: { [alg: string]: string };
+    hashes: {[alg: string]: string};
     v: string;
 }

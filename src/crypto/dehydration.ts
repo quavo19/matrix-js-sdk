@@ -16,19 +16,18 @@ limitations under the License.
 
 import anotherjson from "another-json";
 
-import type { IDeviceKeys, IOneTimeKey } from "../@types/crypto";
-import { decodeBase64, encodeBase64 } from "./olmlib";
-import { IndexedDBCryptoStore } from "../crypto/store/indexeddb-crypto-store";
-import { decryptAES, encryptAES } from "./aes";
-import { logger } from "../logger";
+import { decodeBase64, encodeBase64 } from './olmlib';
+import { IndexedDBCryptoStore } from '../crypto/store/indexeddb-crypto-store';
+import { decryptAES, encryptAES } from './aes';
+import { logger } from '../logger';
+import { ISecretStorageKeyInfo } from "./api";
 import { Crypto } from "./index";
 import { Method } from "../http-api";
-import { SecretStorageKeyDescription } from "../secret-storage";
+import { ISignatures } from "../@types/signed";
 
 export interface IDehydratedDevice {
     device_id: string; // eslint-disable-line camelcase
-    device_data: SecretStorageKeyDescription & {
-        // eslint-disable-line camelcase
+    device_data: ISecretStorageKeyInfo & { // eslint-disable-line camelcase
         algorithm: string;
         account: string; // pickle
     };
@@ -38,6 +37,20 @@ export interface IDehydratedDeviceKeyInfo {
     passphrase?: string;
 }
 
+export interface IDeviceKeys {
+    algorithms: Array<string>;
+    device_id: string; // eslint-disable-line camelcase
+    user_id: string; // eslint-disable-line camelcase
+    keys: Record<string, string>;
+    signatures?: ISignatures;
+}
+
+export interface IOneTimeKey {
+    key: string;
+    fallback?: boolean;
+    signatures?: ISignatures;
+}
+
 export const DEHYDRATION_ALGORITHM = "org.matrix.msc2697.v1.olm.libolm_pickle";
 
 const oneweek = 7 * 24 * 60 * 60 * 1000;
@@ -45,41 +58,46 @@ const oneweek = 7 * 24 * 60 * 60 * 1000;
 export class DehydrationManager {
     private inProgress = false;
     private timeoutId: any;
-    private key?: Uint8Array;
-    private keyInfo?: { [props: string]: any };
-    private deviceDisplayName?: string;
+    private key: Uint8Array;
+    private keyInfo: {[props: string]: any};
+    private deviceDisplayName: string;
 
-    public constructor(private readonly crypto: Crypto) {
+    constructor(private readonly crypto: Crypto) {
         this.getDehydrationKeyFromCache();
     }
 
     public getDehydrationKeyFromCache(): Promise<void> {
-        return this.crypto.cryptoStore.doTxn("readonly", [IndexedDBCryptoStore.STORE_ACCOUNT], (txn) => {
-            this.crypto.cryptoStore.getSecretStorePrivateKey(
-                txn,
-                async (result) => {
-                    if (result) {
-                        const { key, keyInfo, deviceDisplayName, time } = result;
-                        const pickleKey = Buffer.from(this.crypto.olmDevice.pickleKey);
-                        const decrypted = await decryptAES(key, pickleKey, DEHYDRATION_ALGORITHM);
-                        this.key = decodeBase64(decrypted);
-                        this.keyInfo = keyInfo;
-                        this.deviceDisplayName = deviceDisplayName;
-                        const now = Date.now();
-                        const delay = Math.max(1, time + oneweek - now);
-                        this.timeoutId = global.setTimeout(this.dehydrateDevice.bind(this), delay);
-                    }
-                },
-                "dehydration",
-            );
-        });
+        return this.crypto.cryptoStore.doTxn(
+            'readonly',
+            [IndexedDBCryptoStore.STORE_ACCOUNT],
+            (txn) => {
+                this.crypto.cryptoStore.getSecretStorePrivateKey(
+                    txn,
+                    async (result) => {
+                        if (result) {
+                            const { key, keyInfo, deviceDisplayName, time } = result;
+                            const pickleKey = Buffer.from(this.crypto.olmDevice.pickleKey);
+                            const decrypted = await decryptAES(key, pickleKey, DEHYDRATION_ALGORITHM);
+                            this.key = decodeBase64(decrypted);
+                            this.keyInfo = keyInfo;
+                            this.deviceDisplayName = deviceDisplayName;
+                            const now = Date.now();
+                            const delay = Math.max(1, time + oneweek - now);
+                            this.timeoutId = global.setTimeout(
+                                this.dehydrateDevice.bind(this), delay,
+                            );
+                        }
+                    },
+                    "dehydration",
+                );
+            },
+        );
     }
 
     /** set the key, and queue periodic dehydration to the server in the background */
     public async setKeyAndQueueDehydration(
-        key: Uint8Array,
-        keyInfo: { [props: string]: any } = {},
-        deviceDisplayName?: string,
+        key: Uint8Array, keyInfo: {[props: string]: any} = {},
+        deviceDisplayName: string = undefined,
     ): Promise<void> {
         const matches = await this.setKey(key, keyInfo, deviceDisplayName);
         if (!matches) {
@@ -89,10 +107,9 @@ export class DehydrationManager {
     }
 
     public async setKey(
-        key: Uint8Array,
-        keyInfo: { [props: string]: any } = {},
-        deviceDisplayName?: string,
-    ): Promise<boolean | undefined> {
+        key: Uint8Array, keyInfo: {[props: string]: any} = {},
+        deviceDisplayName: string = undefined,
+    ): Promise<boolean> {
         if (!key) {
             // unsetting the key -- cancel any pending dehydration task
             if (this.timeoutId) {
@@ -100,9 +117,15 @@ export class DehydrationManager {
                 this.timeoutId = undefined;
             }
             // clear storage
-            await this.crypto.cryptoStore.doTxn("readwrite", [IndexedDBCryptoStore.STORE_ACCOUNT], (txn) => {
-                this.crypto.cryptoStore.storeSecretStorePrivateKey(txn, "dehydration", null);
-            });
+            await this.crypto.cryptoStore.doTxn(
+                'readwrite',
+                [IndexedDBCryptoStore.STORE_ACCOUNT],
+                (txn) => {
+                    this.crypto.cryptoStore.storeSecretStorePrivateKey(
+                        txn, "dehydration", null,
+                    );
+                },
+            );
             this.key = undefined;
             this.keyInfo = undefined;
             return;
@@ -112,9 +135,9 @@ export class DehydrationManager {
         // dehydrate a new device.  If it's the same, we can keep the same
         // device.  (Assume that keyInfo and deviceDisplayName will be the
         // same if the key is the same.)
-        let matches: boolean = !!this.key && key.length == this.key.length;
+        let matches: boolean = this.key && key.length == this.key.length;
         for (let i = 0; matches && i < key.length; i++) {
-            if (key[i] != this.key![i]) {
+            if (key[i] != this.key[i]) {
                 matches = false;
             }
         }
@@ -127,7 +150,7 @@ export class DehydrationManager {
     }
 
     /** returns the device id of the newly created dehydrated device */
-    public async dehydrateDevice(): Promise<string | undefined> {
+    public async dehydrateDevice(): Promise<string> {
         if (this.inProgress) {
             logger.log("Dehydration already in progress -- not starting new dehydration");
             return;
@@ -141,15 +164,22 @@ export class DehydrationManager {
             const pickleKey = Buffer.from(this.crypto.olmDevice.pickleKey);
 
             // update the crypto store with the timestamp
-            const key = await encryptAES(encodeBase64(this.key!), pickleKey, DEHYDRATION_ALGORITHM);
-            await this.crypto.cryptoStore.doTxn("readwrite", [IndexedDBCryptoStore.STORE_ACCOUNT], (txn) => {
-                this.crypto.cryptoStore.storeSecretStorePrivateKey(txn, "dehydration", {
-                    keyInfo: this.keyInfo,
-                    key,
-                    deviceDisplayName: this.deviceDisplayName!,
-                    time: Date.now(),
-                });
-            });
+            const key = await encryptAES(encodeBase64(this.key), pickleKey, DEHYDRATION_ALGORITHM);
+            await this.crypto.cryptoStore.doTxn(
+                'readwrite',
+                [IndexedDBCryptoStore.STORE_ACCOUNT],
+                (txn) => {
+                    this.crypto.cryptoStore.storeSecretStorePrivateKey(
+                        txn, "dehydration",
+                        {
+                            keyInfo: this.keyInfo,
+                            key,
+                            deviceDisplayName: this.deviceDisplayName,
+                            time: Date.now(),
+                        },
+                    );
+                },
+            );
             logger.log("Attempting to dehydrate device");
 
             logger.log("Creating account");
@@ -167,19 +197,20 @@ export class DehydrationManager {
             account.mark_keys_as_published();
 
             // dehydrate the account and store it on the server
-            const pickledAccount = account.pickle(new Uint8Array(this.key!));
+            const pickledAccount = account.pickle(new Uint8Array(this.key));
 
-            const deviceData: { [props: string]: any } = {
+            const deviceData: {[props: string]: any} = {
                 algorithm: DEHYDRATION_ALGORITHM,
                 account: pickledAccount,
             };
-            if (this.keyInfo!.passphrase) {
-                deviceData.passphrase = this.keyInfo!.passphrase;
+            if (this.keyInfo.passphrase) {
+                deviceData.passphrase = this.keyInfo.passphrase;
             }
 
             logger.log("Uploading account to server");
             // eslint-disable-next-line camelcase
             const dehydrateResult = await this.crypto.baseApis.http.authedRequest<{ device_id: string }>(
+                undefined,
                 Method.Put,
                 "/dehydrated_device",
                 undefined,
@@ -228,7 +259,7 @@ export class DehydrationManager {
             }
 
             logger.log("Preparing fallback keys");
-            const fallbackKeys: Record<string, IOneTimeKey> = {};
+            const fallbackKeys = {};
             for (const [keyId, key] of Object.entries(fallbacks.curve25519)) {
                 const k: IOneTimeKey = { key, fallback: true };
                 const signature = account.sign(anotherjson.stringify(k));
@@ -242,6 +273,7 @@ export class DehydrationManager {
 
             logger.log("Uploading keys to server");
             await this.crypto.baseApis.http.authedRequest(
+                undefined,
                 Method.Post,
                 "/keys/upload/" + encodeURI(deviceId),
                 undefined,
@@ -254,7 +286,9 @@ export class DehydrationManager {
             logger.log("Done dehydrating");
 
             // dehydrate again in a week
-            this.timeoutId = global.setTimeout(this.dehydrateDevice.bind(this), oneweek);
+            this.timeoutId = global.setTimeout(
+                this.dehydrateDevice.bind(this), oneweek,
+            );
 
             return deviceId;
         } finally {
@@ -262,7 +296,7 @@ export class DehydrationManager {
         }
     }
 
-    public stop(): void {
+    public stop() {
         if (this.timeoutId) {
             global.clearTimeout(this.timeoutId);
             this.timeoutId = undefined;

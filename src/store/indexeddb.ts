@@ -21,17 +21,17 @@ import { LocalIndexedDBStoreBackend } from "./indexeddb-local-backend";
 import { RemoteIndexedDBStoreBackend } from "./indexeddb-remote-backend";
 import { User } from "../models/user";
 import { IEvent, MatrixEvent } from "../models/event";
-import { logger } from "../logger";
+import { logger } from '../logger';
 import { ISavedSync } from "./index";
 import { IIndexedDBBackend } from "./indexeddb-backend";
 import { ISyncResponse } from "../sync-accumulator";
 import { TypedEventEmitter } from "../models/typed-event-emitter";
 import { IStateEventWithRoomId } from "../@types/search";
 import { IndexedToDeviceBatch, ToDeviceBatchWithTxnId } from "../models/ToDeviceMessage";
-import { IStoredClientOpts } from "../client";
 
 /**
  * This is an internal module. See {@link IndexedDBStore} for the public class.
+ * @module store/indexeddb
  */
 
 // If this value is too small we'll be writing very often which will cause
@@ -42,32 +42,20 @@ import { IStoredClientOpts } from "../client";
 const WRITE_DELAY_MS = 1000 * 60 * 5; // once every 5 minutes
 
 interface IOpts extends IBaseOpts {
-    /** The Indexed DB interface e.g. `window.indexedDB` */
     indexedDB: IDBFactory;
-    /** Optional database name. The same name must be used to open the same database. */
     dbName?: string;
-    /** Optional factory to spin up a Worker to execute the IDB transactions within. */
     workerFactory?: () => Worker;
 }
 
 type EventHandlerMap = {
-    // Fired when an IDB command fails on a degradable path, and the store falls back to MemoryStore
-    // This signals the potential for data volatility.
-    degraded: (e: Error) => void;
-    // Fired when the IndexedDB gets closed unexpectedly, for example, if the underlying storage is removed or
-    // if the user clears the database in the browser's history preferences.
-    closed: () => void;
+    "degraded": (e: Error) => void;
 };
 
 export class IndexedDBStore extends MemoryStore {
-    public static exists(indexedDB: IDBFactory, dbName: string): Promise<boolean> {
+    static exists(indexedDB: IDBFactory, dbName: string): Promise<boolean> {
         return LocalIndexedDBStoreBackend.exists(indexedDB, dbName);
     }
 
-    /**
-     * The backend instance.
-     * Call through to this API if you need to perform specific indexeddb actions like deleting the database.
-     */
     public readonly backend: IIndexedDBBackend;
 
     private startedUp = false;
@@ -85,10 +73,10 @@ export class IndexedDBStore extends MemoryStore {
      * the contents of the store to an IndexedDB backend.
      *
      * All data is still kept in-memory but can be loaded from disk by calling
-     * `startup()`. This can make startup times quicker as a complete
+     * <code>startup()</code>. This can make startup times quicker as a complete
      * sync from the server is not required. This does not reduce memory usage as all
-     * the data is eagerly fetched when `startup()` is called.
-     * ```
+     * the data is eagerly fetched when <code>startup()</code> is called.
+     * <pre>
      * let opts = { indexedDB: window.indexedDB, localStorage: window.localStorage };
      * let store = new IndexedDBStore(opts);
      * await store.startup(); // load from indexed db
@@ -101,15 +89,30 @@ export class IndexedDBStore extends MemoryStore {
      *         console.log("Started up, now with go faster stripes!");
      *     }
      * });
-     * ```
+     * </pre>
      *
-     * @param opts - Options object.
+     * @constructor
+     * @extends MemoryStore
+     * @param {Object} opts Options object.
+     * @param {Object} opts.indexedDB The Indexed DB interface e.g.
+     * <code>window.indexedDB</code>
+     * @param {string=} opts.dbName Optional database name. The same name must be used
+     * to open the same database.
+     * @param {string=} opts.workerScript Optional URL to a script to invoke a web
+     * worker with to run IndexedDB queries on the web worker. The IndexedDbStoreWorker
+     * class is provided for this purpose and requires the application to provide a
+     * trivial wrapper script around it.
+     * @param {Object=} opts.workerApi The webWorker API object. If omitted, the global Worker
+     * object will be used if it exists.
+     * @prop {IndexedDBStoreBackend} backend The backend instance. Call through to
+     * this API if you need to perform specific indexeddb actions like deleting the
+     * database.
      */
-    public constructor(opts: IOpts) {
+    constructor(opts: IOpts) {
         super(opts);
 
         if (!opts.indexedDB) {
-            throw new Error("Missing required option: indexedDB");
+            throw new Error('Missing required option: indexedDB');
         }
 
         if (opts.workerFactory) {
@@ -122,7 +125,7 @@ export class IndexedDBStore extends MemoryStore {
     public on = this.emitter.on.bind(this.emitter);
 
     /**
-     * @returns Resolved when loaded from indexed db.
+     * @return {Promise} Resolved when loaded from indexed db.
      */
     public startup(): Promise<void> {
         if (this.startedUp) {
@@ -131,53 +134,38 @@ export class IndexedDBStore extends MemoryStore {
         }
 
         logger.log(`IndexedDBStore.startup: connecting to backend`);
-        return this.backend
-            .connect(this.onClose)
-            .then(() => {
-                logger.log(`IndexedDBStore.startup: loading presence events`);
-                return this.backend.getUserPresenceEvents();
-            })
-            .then((userPresenceEvents) => {
-                logger.log(`IndexedDBStore.startup: processing presence events`);
-                userPresenceEvents.forEach(([userId, rawEvent]) => {
-                    const u = new User(userId);
-                    if (rawEvent) {
-                        u.setPresenceEvent(new MatrixEvent(rawEvent));
-                    }
-                    this.userModifiedMap[u.userId] = u.getLastModifiedTime();
-                    this.storeUser(u);
-                });
-                this.startedUp = true;
+        return this.backend.connect().then(() => {
+            logger.log(`IndexedDBStore.startup: loading presence events`);
+            return this.backend.getUserPresenceEvents();
+        }).then((userPresenceEvents) => {
+            logger.log(`IndexedDBStore.startup: processing presence events`);
+            userPresenceEvents.forEach(([userId, rawEvent]) => {
+                const u = new User(userId);
+                if (rawEvent) {
+                    u.setPresenceEvent(new MatrixEvent(rawEvent));
+                }
+                this.userModifiedMap[u.userId] = u.getLastModifiedTime();
+                this.storeUser(u);
             });
+        });
     }
-
-    /*
-     * Close the database and destroy any associated workers
-     */
-    public destroy(): Promise<void> {
-        return this.backend.destroy();
-    }
-
-    private onClose = (): void => {
-        this.emitter.emit("closed");
-    };
 
     /**
-     * @returns Promise which resolves with a sync response to restore the
+     * @return {Promise} Resolves with a sync response to restore the
      * client state to where it was at the last save, or null if there
      * is no saved sync data.
      */
-    public getSavedSync = this.degradable((): Promise<ISavedSync | null> => {
+    public getSavedSync = this.degradable((): Promise<ISavedSync> => {
         return this.backend.getSavedSync();
     }, "getSavedSync");
 
-    /** @returns whether or not the database was newly created in this session. */
+    /** @return {Promise<boolean>} whether or not the database was newly created in this session. */
     public isNewlyCreated = this.degradable((): Promise<boolean> => {
         return this.backend.isNewlyCreated();
     }, "isNewlyCreated");
 
     /**
-     * @returns If there is a saved sync, the nextBatch token
+     * @return {Promise} If there is a saved sync, the nextBatch token
      * for this sync, otherwise null.
      */
     public getSavedSyncToken = this.degradable((): Promise<string | null> => {
@@ -186,19 +174,16 @@ export class IndexedDBStore extends MemoryStore {
 
     /**
      * Delete all data from this store.
-     * @returns Promise which resolves if the data was deleted from the database.
+     * @return {Promise} Resolves if the data was deleted from the database.
      */
     public deleteAllData = this.degradable((): Promise<void> => {
         super.deleteAllData();
-        return this.backend.clearDatabase().then(
-            () => {
-                logger.log("Deleted indexeddb data.");
-            },
-            (err) => {
-                logger.error(`Failed to delete indexeddb data: ${err}`);
-                throw err;
-            },
-        );
+        return this.backend.clearDatabase().then(() => {
+            logger.log("Deleted indexeddb data.");
+        }, (err) => {
+            logger.error(`Failed to delete indexeddb data: ${err}`);
+            throw err;
+        });
     });
 
     /**
@@ -207,7 +192,7 @@ export class IndexedDBStore extends MemoryStore {
      * not could change between calling this function and calling
      * save().
      *
-     * @returns True if calling save() will actually save
+     * @return {boolean} True if calling save() will actually save
      *     (at the time this function is called).
      */
     public wantsSave(): boolean {
@@ -218,8 +203,8 @@ export class IndexedDBStore extends MemoryStore {
     /**
      * Possibly write data to the database.
      *
-     * @param force - True to force a save to happen
-     * @returns Promise resolves after the write completes
+     * @param {boolean} force True to force a save to happen
+     * @return {Promise} Promise resolves after the write completes
      *     (or immediately if no write is performed)
      */
     public save(force = false): Promise<void> {
@@ -255,8 +240,9 @@ export class IndexedDBStore extends MemoryStore {
     /**
      * Returns the out-of-band membership events for this room that
      * were previously loaded.
-     * @returns the events, potentially an empty array if OOB loading didn't yield any new members
-     * @returns in case the members for this room haven't been stored yet
+     * @param {string} roomId
+     * @returns {event[]} the events, potentially an empty array if OOB loading didn't yield any new members
+     * @returns {null} in case the members for this room haven't been stored yet
      */
     public getOutOfBandMembers = this.degradable((roomId: string): Promise<IStateEventWithRoomId[] | null> => {
         return this.backend.getOutOfBandMembers(roomId);
@@ -266,8 +252,9 @@ export class IndexedDBStore extends MemoryStore {
      * Stores the out-of-band membership events for this room. Note that
      * it still makes sense to store an empty array as the OOB status for the room is
      * marked as fetched, and getOutOfBandMembers will return an empty array instead of null
-     * @param membershipEvents - the membership events to store
-     * @returns when all members have been stored
+     * @param {string} roomId
+     * @param {event[]} membershipEvents the membership events to store
+     * @returns {Promise} when all members have been stored
      */
     public setOutOfBandMembers = this.degradable(
         (roomId: string, membershipEvents: IStateEventWithRoomId[]): Promise<void> => {
@@ -282,11 +269,11 @@ export class IndexedDBStore extends MemoryStore {
         return this.backend.clearOutOfBandMembers(roomId);
     }, "clearOutOfBandMembers");
 
-    public getClientOptions = this.degradable((): Promise<IStoredClientOpts | undefined> => {
+    public getClientOptions = this.degradable((): Promise<object> => {
         return this.backend.getClientOptions();
     }, "getClientOptions");
 
-    public storeClientOptions = this.degradable((options: IStoredClientOpts): Promise<void> => {
+    public storeClientOptions = this.degradable((options: object): Promise<void> => {
         super.storeClientOptions(options);
         return this.backend.storeClientOptions(options);
     }, "storeClientOptions");
@@ -299,22 +286,22 @@ export class IndexedDBStore extends MemoryStore {
      * When IndexedDB fails via any of these paths, we degrade this back to a `MemoryStore`
      * in place so that the current operation and all future ones are in-memory only.
      *
-     * @param func - The degradable work to do.
-     * @param fallback - The method name for fallback.
-     * @returns A wrapped member function.
+     * @param {Function} func The degradable work to do.
+     * @param {String} fallback The method name for fallback.
+     * @returns {Function} A wrapped member function.
      */
     private degradable<A extends Array<any>, R = void>(
         func: DegradableFn<A, R>,
-        fallback?: keyof MemoryStore,
+        fallback?: string,
     ): DegradableFn<A, R> {
-        const fallbackFn = fallback ? (super[fallback] as Function) : null;
+        const fallbackFn = super[fallback];
 
         return async (...args) => {
             try {
                 return await func.call(this, ...args);
             } catch (e) {
                 logger.error("IndexedDBStore failure, degrading to MemoryStore", e);
-                this.emitter.emit("degraded", e as Error);
+                this.emitter.emit("degraded", e);
                 try {
                     // We try to delete IndexedDB after degrading since this store is only a
                     // cache (the app will still function correctly without the data).
@@ -370,7 +357,7 @@ export class IndexedDBStore extends MemoryStore {
         return this.backend.saveToDeviceBatches(batches);
     }
 
-    public getOldestToDeviceBatch(): Promise<IndexedToDeviceBatch | null> {
+    public getOldestToDeviceBatch(): Promise<IndexedToDeviceBatch> {
         return this.backend.getOldestToDeviceBatch();
     }
 
@@ -380,8 +367,8 @@ export class IndexedDBStore extends MemoryStore {
 }
 
 /**
- * @param roomId - ID of the current room
- * @returns Storage key to retrieve pending events
+ * @param {string} roomId ID of the current room
+ * @returns {string} Storage key to retrieve pending events
  */
 function pendingEventsKey(roomId: string): string {
     return `mx_pending_events_${roomId}`;

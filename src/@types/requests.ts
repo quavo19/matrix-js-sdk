@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import { Callback } from "../client";
 import { IContent, IEvent } from "../models/event";
 import { Preset, Visibility } from "./partials";
 import { IEventWithRoomId, SearchKey } from "./search";
@@ -21,7 +22,7 @@ import { IRoomEventFilter } from "../filter";
 import { Direction } from "../models/event-timeline";
 import { PushRuleAction } from "./PushRules";
 import { IRoomEvent } from "../sync-accumulator";
-import { EventType, RelationType, RoomType } from "./event";
+import { RoomType } from "./event";
 
 // allow camelcase as these are things that go onto the wire
 /* eslint-disable camelcase */
@@ -47,17 +48,6 @@ export interface IJoinRoomOpts {
 
 export interface IRedactOpts {
     reason?: string;
-    /**
-     * If specified, then any events which relate to the event being redacted with
-     * any of the relationship types listed will also be redacted.
-     * Provide a "*" list item to tell the server to redact relations of any type.
-     *
-     * <b>Raises an Error if the server does not support it.</b>
-     * Check for server-side support before using this param with
-     * <code>client.canSupport.get(Feature.RelationBasedRedactions)</code>.
-     * {@link https://github.com/matrix-org/matrix-spec-proposals/pull/3912}
-     */
-    with_rel_types?: Array<RelationType | "*">;
 }
 
 export interface ISendEventResponse {
@@ -65,31 +55,17 @@ export interface ISendEventResponse {
 }
 
 export interface IPresenceOpts {
-    // One of "online", "offline" or "unavailable"
     presence: "online" | "offline" | "unavailable";
-    // The status message to attach.
     status_msg?: string;
 }
 
 export interface IPaginateOpts {
-    // true to fill backwards, false to go forwards
     backwards?: boolean;
-    // number of events to request
     limit?: number;
 }
 
 export interface IGuestAccessOpts {
-    /**
-     * True to allow guests to join this room. This
-     * implicitly gives guests write access. If false or not given, guests are
-     * explicitly forbidden from joining the room.
-     */
     allowJoin: boolean;
-    /**
-     * True to set history visibility to
-     * be world_readable. This gives guests read access *from this point forward*.
-     * If false or not given, history visibility is not modified.
-     */
     allowRead: boolean;
 }
 
@@ -99,9 +75,7 @@ export interface ISearchOpts {
 }
 
 export interface IEventSearchOpts {
-    // a JSON filter object to pass in the request
     filter?: IRoomEventFilter;
-    // the term to search for
     term: string;
 }
 
@@ -119,30 +93,14 @@ export interface ICreateRoomStateEvent {
 }
 
 export interface ICreateRoomOpts {
-    // The alias localpart to assign to this room.
     room_alias_name?: string;
-    // Either 'public' or 'private'.
     visibility?: Visibility;
-    // The name to give this room.
     name?: string;
-    // The topic to give this room.
     topic?: string;
     preset?: Preset;
-    power_level_content_override?: {
-        ban?: number;
-        events?: Record<EventType | string, number>;
-        events_default?: number;
-        invite?: number;
-        kick?: number;
-        notifications?: Record<string, number>;
-        redact?: number;
-        state_default?: number;
-        users?: Record<string, number>;
-        users_default?: number;
-    };
+    power_level_content_override?: object;
     creation_content?: object;
     initial_state?: ICreateRoomStateEvent[];
-    // A list of user IDs to invite to this room.
     invite?: string[];
     invite_3pid?: IInvite3PID[];
     is_direct?: boolean;
@@ -153,15 +111,22 @@ export interface IRoomDirectoryOptions {
     server?: string;
     limit?: number;
     since?: string;
-
-    // Filter parameters
     filter?: {
-        // String to search for
         generic_search_term?: string;
         room_types?: Array<RoomType | null>;
     };
     include_all_networks?: boolean;
     third_party_instance_id?: string;
+}
+
+export interface IUploadOpts {
+    name?: string;
+    includeFilename?: boolean;
+    type?: string;
+    rawResponse?: boolean;
+    onlyContentUri?: boolean;
+    callback?: Callback;
+    progressHandler?: (state: {loaded: number, total: number}) => void;
 }
 
 export interface IAddThreePidOnlyBody {
@@ -184,11 +149,11 @@ export interface IRelationsRequestOpts {
     from?: string;
     to?: string;
     limit?: number;
-    dir?: Direction;
-    recurse?: boolean; // MSC3981 Relations Recursion https://github.com/matrix-org/matrix-spec-proposals/pull/3981
+    direction?: Direction;
 }
 
 export interface IRelationsResponse {
+    original_event: IEvent;
     chunk: IEvent[];
     next_batch?: string;
     prev_batch?: string;

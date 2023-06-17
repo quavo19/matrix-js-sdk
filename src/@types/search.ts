@@ -114,6 +114,5 @@ export interface ISearchResults {
     count?: number;
     next_batch?: string;
     pendingRequest?: Promise<ISearchResults>;
-    abortSignal?: AbortSignal;
 }
 /* eslint-enable camelcase */

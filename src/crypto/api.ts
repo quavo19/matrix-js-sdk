@@ -16,25 +16,14 @@ limitations under the License.
 
 import { DeviceInfo } from "./deviceinfo";
 import { IKeyBackupInfo } from "./keybackup";
-import { GeneratedSecretStorageKey } from "../crypto-api";
-
-/* re-exports for backwards compatibility. */
-// CrossSigningKey is used as a value in `client.ts`, we can't export it as a type
-export { CrossSigningKey } from "../crypto-api";
-export type { GeneratedSecretStorageKey as IRecoveryKey } from "../crypto-api";
-
-export type {
-    ImportRoomKeyProgressData as IImportOpts,
-    ImportRoomKeysOpts as IImportRoomKeysOpts,
-} from "../crypto-api";
-
-export type {
-    AddSecretStorageKeyOpts as IAddSecretStorageKeyOpts,
-    PassphraseInfo as IPassphraseInfo,
-    SecretStorageKeyDescription as ISecretStorageKeyInfo,
-} from "../secret-storage";
 
 // TODO: Merge this with crypto.js once converted
+
+export enum CrossSigningKey {
+    Master = "master",
+    SelfSigning = "self_signing",
+    UserSigning = "user_signing",
+}
 
 export interface IEncryptedEventInfo {
     /**
@@ -68,14 +57,21 @@ export interface IEncryptedEventInfo {
     mismatchedSender: boolean;
 }
 
+export interface IRecoveryKey {
+    keyInfo?: IAddSecretStorageKeyOpts;
+    privateKey: Uint8Array;
+    encodedPrivateKey?: string;
+}
+
 export interface ICreateSecretStorageOpts {
     /**
      * Function called to await a secret storage key creation flow.
-     * @returns Promise resolving to an object with public key metadata, encoded private
+     * Returns:
+     *     {Promise<Object>} Object with public key metadata, encoded private
      *     recovery key which should be disposed of after displaying to the user,
      *     and raw private key to avoid round tripping if needed.
      */
-    createSecretStorageKey?: () => Promise<GeneratedSecretStorageKey>;
+    createSecretStorageKey?: () => Promise<IRecoveryKey>;
 
     /**
      * The current key backup object. If passed,
@@ -101,4 +97,41 @@ export interface ICreateSecretStorageOpts {
      * containing the key, or rejects if the key cannot be obtained.
      */
     getKeyBackupPassphrase?: () => Promise<Uint8Array>;
+}
+
+export interface ISecretStorageKeyInfo {
+    name: string;
+    algorithm: string;
+    // technically the below are specific to AES keys. If we ever introduce another type,
+    // we can split into separate interfaces.
+    iv: string;
+    mac: string;
+    passphrase: IPassphraseInfo;
+}
+
+export interface IPassphraseInfo {
+    algorithm: "m.pbkdf2";
+    iterations: number;
+    salt: string;
+    bits?: number;
+}
+
+export interface IAddSecretStorageKeyOpts {
+    pubkey: string;
+    passphrase?: IPassphraseInfo;
+    name?: string;
+    key: Uint8Array;
+}
+
+export interface IImportOpts {
+    stage: string; // TODO: Enum
+    successes: number;
+    failures: number;
+    total: number;
+}
+
+export interface IImportRoomKeysOpts {
+    progressCallback?: (stage: IImportOpts) => void;
+    untrusted?: boolean;
+    source?: string; // TODO: Enum
 }
