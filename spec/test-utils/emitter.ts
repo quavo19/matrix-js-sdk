@@ -24,5 +24,5 @@ limitations under the License.
  * expect(beaconLivenessEmits.length).toBe(1);
  * ```
  */
-export const filterEmitCallsByEventType = (eventType: string, spy: jest.SpyInstance<any, any[]>) =>
+export const filterEmitCallsByEventType = (eventType: string, spy: jest.SpyInstance<any, unknown[]>) =>
     spy.mock.calls.filter((args) => args[0] === eventType);

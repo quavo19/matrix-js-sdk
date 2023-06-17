@@ -21,32 +21,35 @@ describe("NamespacedValue", () => {
         const ns = new NamespacedValue("stable", "unstable");
         expect(ns.name).toBe(ns.stable);
         expect(ns.altName).toBe(ns.unstable);
-        expect(ns.names).toEqual([ns.stable, ns.unstable]);
     });
 
     it("should return unstable if there is no stable", () => {
         const ns = new NamespacedValue(null, "unstable");
         expect(ns.name).toBe(ns.unstable);
         expect(ns.altName).toBeFalsy();
-        expect(ns.names).toEqual([ns.unstable]);
     });
 
     it("should have a falsey unstable if needed", () => {
-        const ns = new NamespacedValue("stable");
+        const ns = new NamespacedValue("stable", null);
         expect(ns.name).toBe(ns.stable);
         expect(ns.altName).toBeFalsy();
-        expect(ns.names).toEqual([ns.stable]);
     });
 
     it("should match against either stable or unstable", () => {
         const ns = new NamespacedValue("stable", "unstable");
         expect(ns.matches("no")).toBe(false);
-        expect(ns.matches(ns.stable!)).toBe(true);
-        expect(ns.matches(ns.unstable!)).toBe(true);
+        expect(ns.matches(ns.stable)).toBe(true);
+        expect(ns.matches(ns.unstable)).toBe(true);
     });
 
     it("should not permit falsey values for both parts", () => {
-        expect(() => new UnstableValue(null!, null!)).toThrow("One of stable or unstable values must be supplied");
+        try {
+            new UnstableValue(null, null);
+            // noinspection ExceptionCaughtLocallyJS
+            throw new Error("Failed to fail");
+        } catch (e) {
+            expect(e.message).toBe("One of stable or unstable values must be supplied");
+        }
     });
 });
 
@@ -55,17 +58,21 @@ describe("UnstableValue", () => {
         const ns = new UnstableValue("stable", "unstable");
         expect(ns.name).toBe(ns.unstable);
         expect(ns.altName).toBe(ns.stable);
-        expect(ns.names).toEqual([ns.unstable, ns.stable]);
     });
 
     it("should return unstable if there is no stable", () => {
-        const ns = new UnstableValue(null!, "unstable");
+        const ns = new UnstableValue(null, "unstable");
         expect(ns.name).toBe(ns.unstable);
         expect(ns.altName).toBeFalsy();
-        expect(ns.names).toEqual([ns.unstable]);
     });
 
     it("should not permit falsey unstable values", () => {
-        expect(() => new UnstableValue("stable", null!)).toThrow("Unstable value must be supplied");
+        try {
+            new UnstableValue("stable", null);
+            // noinspection ExceptionCaughtLocallyJS
+            throw new Error("Failed to fail");
+        } catch (e) {
+            expect(e.message).toBe("Unstable value must be supplied");
+        }
     });
 });
