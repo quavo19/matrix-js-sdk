@@ -1,5 +1,5 @@
-/_docs
-.DS_Store
+/.jsdocbuild
+/.jsdoc
 
 node_modules
 /.npmrc
@@ -19,4 +19,3 @@ out
 
 .vscode
 .vscode/
-.idea/
